@@ -6,7 +6,8 @@
 .PHONY: help setup install install-calcode install-admin admin-env \
         admin-migrate admin-dev admin-start admin-test admin-typecheck admin-reset-db \
         calcode calcode-build calcode-install calcode-typecheck calcode-test test typecheck \
-        calcode-build-all calcode-publish-dry calcode-publish calcode-publish-only calcode-deploy
+        calcode-build-all calcode-publish-dry calcode-publish calcode-publish-only calcode-deploy \
+        release-create release-build release
 
 CLI_DIR   := packages/opencode
 ADMIN_DIR := admin
@@ -92,6 +93,28 @@ calcode-publish-only: ## Publish the existing dist/ without rebuilding (resume a
 calcode-deploy: ## One-go publish via local ./deployment.sh (not in git): make calcode-deploy VERSION=x.y.z
 	@test -x deployment.sh || { echo "deployment.sh not found (it is local-only and gitignored)"; exit 1; }
 	./deployment.sh $(VERSION)
+
+# GitHub Releases: builds binaries for all platforms, packages them, and uploads
+# as release assets so `curl -fsSL .../install | bash` works.
+#   make release VERSION=1.0.0              full deploy (create release + build + upload)
+#   make release-create VERSION=1.0.0       create the GitHub Release only
+#   make release-build VERSION=1.0.0        build + upload to an existing release
+GH_REPO ?= $(shell git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$$||')
+
+release-create: ## Create a GitHub Release tag: make release-create VERSION=x.y.z
+	@test -n "$(VERSION)" || { echo "VERSION is required, e.g. make $@ VERSION=1.0.0"; exit 1; }
+	gh release view v$(VERSION) --repo $(GH_REPO) >/dev/null 2>&1 && \
+	  echo "release v$(VERSION) already exists on $(GH_REPO)" || \
+	  gh release create v$(VERSION) --repo $(GH_REPO) --title "v$(VERSION)" --generate-notes
+
+release-build: ## Build all platforms and upload assets to GitHub Releases: make release-build VERSION=x.y.z
+	@test -n "$(VERSION)" || { echo "VERSION is required, e.g. make $@ VERSION=1.0.0"; exit 1; }
+	cd $(CLI_DIR) && OPENCODE_VERSION=$(VERSION) OPENCODE_CHANNEL=latest OPENCODE_RELEASE=1 GH_REPO=$(GH_REPO) bun run script/build.ts
+
+release: release-create release-build ## Full GitHub Releases deploy: make release VERSION=x.y.z
+	@echo ""
+	@echo "Released v$(VERSION) to $(GH_REPO). Install with:"
+	@echo "  curl -fsSL https://raw.githubusercontent.com/$(GH_REPO)/master/install | bash"
 
 calcode-typecheck: ## Typecheck calcode
 	cd $(CLI_DIR) && bun typecheck

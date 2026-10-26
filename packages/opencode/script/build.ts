@@ -246,7 +246,8 @@ if (Script.release) {
       await $`zip -r ../../${key}.zip *`.cwd(`dist/${key}/bin`)
     }
   }
-  await $`gh release upload v${Script.version} ./dist/*.zip ./dist/*.tar.gz --clobber --repo ${process.env.GH_REPO}`
+  const archives = await Array.fromAsync(new Bun.Glob("calcode-*.{zip,tar.gz}").scan({ cwd: "dist" }))
+  await $`gh release upload v${Script.version} ${archives.map((f) => `dist/${f}`)} --clobber --repo ${process.env.GH_REPO}`
 }
 
 export { binaries }
