@@ -116,8 +116,12 @@ calcode-reinstall: calcode-clean calcode-install ## Wipe local state, then rebui
 
 GH_REPO ?= $(shell git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$$||')
 
-release: ## Build all platforms, push tag v$(VERSION), create the GitHub Release and upload binaries
+ENV ?= dev
+
+release: ## Build all platforms, push tag v$(VERSION), create the GitHub Release and upload binaries (ENV=dev|prod, default dev)
 	@test -n "$(VERSION)" || { echo "VERSION is required, e.g. make $@ VERSION=1.0.0"; exit 1; }
+	@test -f .env.$(ENV) || { echo ".env.$(ENV) not found (ENV must be dev or prod)"; exit 1; }
+	cp .env.$(ENV) .env
 	@test -z "$$(git status --porcelain)" || { echo "working tree is dirty: commit or stash first"; exit 1; }
 	git push origin HEAD
 	git rev-parse -q --verify refs/tags/v$(VERSION) >/dev/null || git tag v$(VERSION)
