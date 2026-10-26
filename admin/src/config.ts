@@ -19,9 +19,15 @@ export const config = {
   },
 }
 
+// Keys and session token must come from the same source. On Lambda, AWS_SESSION_TOKEN belongs to the
+// execution role, so pairing it with static S3_* keys from .env makes S3 reject the request (InvalidToken).
+// Returning undefined lets the SDK default chain use the role credentials.
 function s3Credentials() {
-  const accessKeyId = process.env.S3_ACCESS_KEY_ID ?? process.env.AWS_ACCESS_KEY_ID
-  const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY ?? process.env.AWS_SECRET_ACCESS_KEY
-  if (!accessKeyId || !secretAccessKey) return undefined
-  return { accessKeyId, secretAccessKey, sessionToken: process.env.S3_SESSION_TOKEN ?? process.env.AWS_SESSION_TOKEN }
+  if (process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY)
+    return {
+      accessKeyId: process.env.S3_ACCESS_KEY_ID,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+      sessionToken: process.env.S3_SESSION_TOKEN || undefined,
+    }
+  return undefined
 }
