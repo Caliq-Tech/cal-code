@@ -1,129 +1,105 @@
-<p align="center">
-  <a href="https://opencode.ai">
-    <picture>
-      <source srcset="packages/console/app/src/asset/logo-ornate-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="packages/console/app/src/asset/logo-ornate-light.svg" media="(prefers-color-scheme: light)">
-      <img src="packages/console/app/src/asset/logo-ornate-light.svg" alt="OpenCode logo">
-    </picture>
-  </a>
-</p>
-<p align="center">The open source AI coding agent.</p>
-<p align="center">
-  <a href="https://opencode.ai/discord"><img alt="Discord" src="https://img.shields.io/discord/1391832426048651334?style=flat-square&label=discord" /></a>
-  <a href="https://www.npmjs.com/package/opencode-ai"><img alt="npm" src="https://img.shields.io/npm/v/opencode-ai?style=flat-square" /></a>
-  <a href="https://github.com/anomalyco/opencode/actions/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/anomalyco/opencode/publish.yml?style=flat-square&branch=dev" /></a>
-</p>
+# Calcode
 
-<p align="center">
-  <a href="README.md">English</a> |
-  <a href="README.zh.md">简体中文</a> |
-  <a href="README.zht.md">繁體中文</a> |
-  <a href="README.ko.md">한국어</a> |
-  <a href="README.de.md">Deutsch</a> |
-  <a href="README.es.md">Español</a> |
-  <a href="README.fr.md">Français</a> |
-  <a href="README.it.md">Italiano</a> |
-  <a href="README.da.md">Dansk</a> |
-  <a href="README.ja.md">日本語</a> |
-  <a href="README.pl.md">Polski</a> |
-  <a href="README.ru.md">Русский</a> |
-  <a href="README.bs.md">Bosanski</a> |
-  <a href="README.ar.md">العربية</a> |
-  <a href="README.no.md">Norsk</a> |
-  <a href="README.br.md">Português (Brasil)</a> |
-  <a href="README.th.md">ไทย</a> |
-  <a href="README.tr.md">Türkçe</a> |
-  <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a> |
-  <a href="README.gr.md">Ελληνικά</a> |
-  <a href="README.vi.md">Tiếng Việt</a>
-</p>
+An AI coding agent for the terminal, with a managed key, a managed provider and mandatory audit logging.
 
-[![OpenCode Terminal UI](packages/web/src/assets/lander/screenshot.png)](https://opencode.ai)
+> [!NOTE]
+> Calcode is a fork of [opencode](https://github.com/anomalyco/opencode) by the opencode team. The terminal UI, agents, tools and
+> configuration come from opencode. Calcode changes the command name to `calcode` and adds a managed-key
+> session and an audit trail on top. It is not affiliated with or endorsed by the opencode team.
 
 ---
 
-### Installation
+## How it works
 
-```bash
-# YOLO
-curl -fsSL https://opencode.ai/install | bash
+Calcode is the opencode CLI behind a gate. You never configure a model provider yourself: your organisation issues you a secret key, and Calcode fetches the provider and credentials for it on every run.
 
-# Package managers
-npm i -g opencode-ai@latest        # or bun/pnpm/yarn
-scoop install opencode             # Windows
-choco install opencode             # Windows
-brew install anomalyco/tap/opencode # macOS and Linux (recommended, always up to date)
-brew install opencode              # macOS and Linux (official brew formula, updated less)
-sudo pacman -S opencode            # Arch Linux (Stable)
-paru -S opencode-bin               # Arch Linux (Latest from AUR)
-mise use -g opencode               # Any OS
-nix run nixpkgs#opencode           # or github:anomalyco/opencode for latest dev branch
+1. **First run.** `calcode` prompts (input hidden) for your secret key, validates it against the Calcode API and stores it in
+   `<data dir>/calcode.json` (mode `0600`). Later runs never ask again. `calcode logout` forgets the key.
+   For non-interactive use, set `CALCODE_KEY`.
+2. **Every run.** Calcode calls `POST /v1/session`. The returned provider, API key and optional default model are injected
+   into opencode's config, and all other providers are disabled. An invalid or revoked key (`401`/`403`) is cleared and you are asked again.
+3. **Every prompt turn.** After each turn, one JSON record (prompt, response, tool calls, tokens) is written to a local
+   `audit-queue/` directory, then uploaded to S3 through a presigned URL. Failed uploads stay queued and are retried on the next turn or start.
+
+```
+ calcode CLI ──POST /v1/session──────▶ Calcode admin server ──▶ provider + API key + model
+     │       ──POST /v1/audit/presign─▶        (admin/)        ──▶ presigned S3 PUT URL
+     │
+     └─ audit record ──PUT──▶ S3 (one prefix per user) ──▶ browse in the admin UI
 ```
 
-> [!TIP]
-> Remove versions older than 0.1.x before installing.
+Everything else behaves like opencode: config files, data directories and `OPENCODE_*` environment variables are unchanged.
+See [CALCODE.md](./CALCODE.md) for the full flow and API contract.
 
-### Desktop App (BETA)
+### The admin server
 
-OpenCode is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/opencode/releases) or [opencode.ai/download](https://opencode.ai/download).
-
-| Platform              | Download                           |
-| --------------------- | ---------------------------------- |
-| macOS (Apple Silicon) | `opencode-desktop-mac-arm64.dmg`   |
-| macOS (Intel)         | `opencode-desktop-mac-x64.dmg`     |
-| Windows               | `opencode-desktop-windows-x64.exe` |
-| Linux                 | `.deb`, `.rpm`, or `.AppImage`     |
-
-```bash
-# macOS (Homebrew)
-brew install --cask opencode-desktop
-# Windows (Scoop)
-scoop bucket add extras; scoop install extras/opencode-desktop
-```
-
-#### Installation Directory
-
-The install script respects the following priority order for the installation path:
-
-1. `$OPENCODE_INSTALL_DIR` - Custom installation directory
-2. `$XDG_BIN_DIR` - XDG Base Directory Specification compliant path
-3. `$HOME/bin` - Standard user binary directory (if it exists or can be created)
-4. `$HOME/.opencode/bin` - Default fallback
-
-```bash
-# Examples
-OPENCODE_INSTALL_DIR=/usr/local/bin curl -fsSL https://opencode.ai/install | bash
-XDG_BIN_DIR=$HOME/.local/bin curl -fsSL https://opencode.ai/install | bash
-```
-
-### Agents
-
-OpenCode includes two built-in agents you can switch between with the `Tab` key.
-
-- **build** - Default, full-access agent for development work
-- **plan** - Read-only agent for analysis and code exploration
-  - Denies file edits by default
-  - Asks permission before running bash commands
-  - Ideal for exploring unfamiliar codebases or planning changes
-
-Also included is a **general** subagent for complex searches and multistep tasks.
-This is used internally and can be invoked using `@general` in messages.
-
-Learn more about [agents](https://opencode.ai/docs/agents).
-
-### Documentation
-
-For more info on how to configure OpenCode, [**head over to our docs**](https://opencode.ai/docs).
-
-### Contributing
-
-If you're interested in contributing to OpenCode, please read our [contributing docs](./CONTRIBUTING.md) before submitting a pull request.
-
-### Building on OpenCode
-
-If you are working on a project that's related to OpenCode and is using "opencode" as part of its name, for example "opencode-dashboard" or "opencode-mobile", please add a note to your README to clarify that it is not built by the OpenCode team and is not affiliated with us in any way.
+The API that the CLI talks to lives in [`admin/`](./admin). It issues and revokes user keys, maps each key to a provider and model,
+hands out presigned upload URLs scoped to the user's own S3 prefix, and has a web UI to browse every uploaded turn.
+See [admin/README.md](./admin/README.md).
 
 ---
 
-**Join our community** [Discord](https://discord.gg/opencode) | [X.com](https://x.com/opencode)
+## Installation
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Caliq-Tech/cal-code/master/install | bash
+```
+
+To install a specific version, or from a local binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Caliq-Tech/cal-code/master/install | bash -s -- --version 1.0.180
+./install --binary /path/to/calcode
+```
+
+The binary is installed to `$HOME/.calcode/bin` and added to your `PATH`. Pass `--no-modify-path` to skip editing shell config files.
+
+### Build from source
+
+Requires [Bun](https://bun.sh).
+
+```bash
+make setup             # install deps, create admin/.env, run migrations
+make calcode-install   # build a native binary and link it as `calcode` in ~/.local/bin
+make calcode ARGS="run hi"   # or run straight from source
+make help              # all targets
+```
+
+## Usage
+
+```bash
+calcode                # start the terminal UI in the current directory
+calcode run "fix the failing tests"   # non-interactive
+calcode logout         # forget the stored secret key
+```
+
+Press `Tab` to switch between the built-in agents:
+
+- **build**: default, full-access agent for development work
+- **plan**: read-only agent for analysis and code exploration. It denies file edits and asks before running bash commands.
+
+A **general** subagent handles complex searches and multistep tasks; invoke it with `@general`.
+
+Agents, tools, themes, keybinds and MCP servers are configured the same way as in opencode, see the
+[opencode docs](https://opencode.ai/docs).
+
+## Configuration
+
+| Variable          | Purpose                                                              |
+| ----------------- | -------------------------------------------------------------------- |
+| `CALCODE_API_URL` | Base URL of the Calcode admin server                                 |
+| `CALCODE_KEY`     | Secret key for non-interactive runs (skips the prompt)               |
+
+## Repository layout
+
+| Path                 | What it is                                                                 |
+| -------------------- | -------------------------------------------------------------------------- |
+| `packages/opencode`  | The CLI (forked from opencode); Calcode additions are in `src/calcode` and `src/audit` |
+| `packages/tui`       | Terminal UI                                                                |
+| `admin/`             | Calcode admin server: key issuing, provider mapping, audit UI              |
+| `CALCODE.md`         | Detailed flow and API contract                                             |
+
+## Credits and license
+
+Calcode is built on [opencode](https://github.com/anomalyco/opencode), an open source AI coding agent. Thanks to the opencode
+team and contributors. Both projects are released under the [MIT license](./LICENSE).
