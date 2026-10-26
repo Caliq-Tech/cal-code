@@ -16,6 +16,11 @@ const generated = await import("./generate.ts")
 import { Script } from "@opencode-ai/script"
 import pkg from "../package.json"
 
+// Bake the API URL into the binary: compiled binaries run from arbitrary dirs and never see the repo's .env.
+const calcodeApiUrl =
+  process.env.CALCODE_API_URL ??
+  (await Bun.file(path.join(dir, "../../.env")).text().catch(() => "")).match(/^CALCODE_API_URL=(.+)$/m)?.[1]?.trim()
+
 const singleFlag = process.argv.includes("--single")
 const baselineFlag = process.argv.includes("--baseline")
 const skipInstall = process.argv.includes("--skip-install")
@@ -196,6 +201,7 @@ for (const item of targets) {
       OTUI_TREE_SITTER_WORKER_PATH: bunfsRoot + treeSitterWorkerPath,
       OPENCODE_WORKER_PATH: workerPath,
       OPENCODE_CHANNEL: `'${Script.channel}'`,
+      ...(calcodeApiUrl ? { CALCODE_DEFAULT_API_URL: JSON.stringify(calcodeApiUrl) } : {}),
       OPENCODE_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "",
       ...(item.os === "linux" ? { "process.env.OPENTUI_LIBC": JSON.stringify(item.abi ?? "glibc") } : {}),
     },

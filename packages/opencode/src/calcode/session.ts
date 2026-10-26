@@ -2,9 +2,12 @@ import path from "path"
 import * as prompts from "@clack/prompts"
 import { Global } from "@opencode-ai/core/global"
 
-// Placeholder default; override with CALCODE_API_URL until the real endpoint is fixed.
+declare const CALCODE_DEFAULT_API_URL: string | undefined
+
+// Runtime CALCODE_API_URL wins; release builds bake in the value from .env, dev falls back to the local admin server.
 export const apiUrl = () =>
-  (process.env.CALCODE_API_URL ?? "http://localhost:8787")
+  (process.env.CALCODE_API_URL ??
+    (typeof CALCODE_DEFAULT_API_URL === "string" ? CALCODE_DEFAULT_API_URL : "http://localhost:8787"))
     .replace(/\/+$/, "")
     .replace(/\/(admin(\/api)?|v1)$/, "")
 
