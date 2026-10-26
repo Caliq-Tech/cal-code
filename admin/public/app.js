@@ -26,6 +26,19 @@ async function api(method, path, body) {
   return data
 }
 
+// replaceChildren(null) renders the text "null", so drop empty slots before mounting.
+const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k != null && k !== false))
+
+const themeToggle = () => {
+  const el = document.documentElement
+  const btn = h("button", { class: "btn theme", title: "Toggle light / dark", "aria-label": "Toggle theme", onclick: () => {
+    el.dataset.theme = el.dataset.theme === "dark" ? "light" : "dark"
+    try { localStorage.setItem("theme", el.dataset.theme) } catch {}
+    btn.textContent = el.dataset.theme === "dark" ? "☀" : "☾"
+  } }, el.dataset.theme === "dark" ? "☀" : "☾")
+  return btn
+}
+
 const root = document.getElementById("app")
 const fmt = (ms) => (ms ? new Date(ms).toLocaleString() : "—")
 const kb = (n) => (n < 1024 ? n + " B" : (n / 1024).toFixed(1) + " KB")
@@ -96,6 +109,7 @@ function renderLogin() {
         start()
       } catch (ex) { err.textContent = ex.message }
     } },
+      themeToggle(),
       h("h1", {}, "Calcode Admin"),
       h("label", {}, "Password", h("input", { name: "password", type: "password", required: true, autofocus: true })),
       err,
@@ -118,6 +132,7 @@ function start() {
     nav.append(h("button", { "data-tab": name, onclick: () => show(name) }, name[0].toUpperCase() + name.slice(1)))
   root.replaceChildren(
     h("header", {}, h("h1", {}, "Calcode Admin"), nav,
+      themeToggle(),
       h("button", { class: "btn", onclick: async () => { await api("POST", "/logout"); renderLogin() } }, "Sign out")),
     main)
   window.onhashchange = () => tabs[location.hash.slice(1)] && show(location.hash.slice(1))
@@ -134,7 +149,7 @@ async function renderProviders(main) {
     { name: "apiKey", label: p.id ? "API key (leave blank to keep current)" : "API key", type: "password", required: !p.id },
     { name: "baseURL", label: "Base URL (optional)", value: p.baseURL ?? "" },
   ]
-  main.replaceChildren(
+  fill(main, 
     h("div", { class: "bar" }, h("h2", {}, "Model providers"), h("span", { class: "spacer" }),
       h("button", { class: "btn primary", onclick: () => openForm("New provider", fields(), "Create", async (d) => { await api("POST", "/providers", d); renderProviders(main) }) }, "New provider")),
     h("div", { class: "table-wrap" }, h("table", {},
@@ -160,7 +175,7 @@ async function renderUsers(main) {
     { name: "providerRef", label: "Provider", type: "select", value: u.providerRef, options: providers.map((p) => ({ value: p.id, label: p.name })) },
     { name: "model", label: "Model ID (optional, e.g. claude-sonnet-4-5)", value: u.model ?? "" },
   ]
-  main.replaceChildren(
+  fill(main, 
     providers.length ? null : h("p", { class: "err" }, "No providers yet. Add a model provider first (Providers tab), then create users."),
     h("div", { class: "bar" }, h("h2", {}, "Users & secret keys"), h("span", { class: "spacer" }),
       h("button", { class: "btn primary", onclick: () => !providers.length ? (location.hash = "providers") : openForm("New user", fields(), "Create", async (d) => {
@@ -211,7 +226,7 @@ async function renderAudit(main) {
   }
   userSel.addEventListener("change", load)
   dateIn.addEventListener("change", load)
-  main.replaceChildren(
+  fill(main, 
     h("div", { class: "bar" }, h("h2", {}, "Audit log"), h("span", { class: "spacer" }), userSel, dateIn,
       h("button", { class: "btn", onclick: load }, "Refresh")),
     out)
@@ -224,7 +239,7 @@ async function openRecord(o, who) {
   try {
     const r = await api("GET", "/audit/record?" + new URLSearchParams({ key: o.key }))
     const tokens = r.response?.tokens
-    body.replaceChildren(
+    fill(body,
       h("div", { class: "kv" },
         h("span", {}, "Time"), h("span", {}, r.timestamp), h("span", {}, "Model"), h("span", {}, `${r.provider ?? "?"} / ${r.model ?? "?"}`),
         h("span", {}, "Agent"), h("span", {}, r.agent ?? "—"), h("span", {}, "Project"), h("span", { class: "mono" }, r.project?.directory ?? "—"),
