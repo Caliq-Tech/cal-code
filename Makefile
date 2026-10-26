@@ -1,20 +1,16 @@
 # Calcode: CLI (packages/opencode) + admin server (admin/)
-#   make setup        first-time: install everything, create admin/.env, run migrations
-#   make admin-dev    start the admin server with reload     (http://localhost:8787)
-#   make calcode ARGS="run hi"   run the CLI from source
+
 .DEFAULT_GOAL := help
 .PHONY: help setup install install-calcode install-admin admin-env \
-        admin-migrate admin-dev admin-start admin-test admin-typecheck admin-reset-db \
-        calcode calcode-build calcode-install calcode-typecheck calcode-test test typecheck \
-        calcode-build-all calcode-publish-dry calcode-publish calcode-publish-only calcode-deploy \
-        release-create release-build release
+        admin-migrate admin-migrate-dev admin-migrate-prod admin-dev admin-start admin-test admin-typecheck admin-reset-db \
+        admin-check-deploy admin-deploy-dev admin-deploy-prod admin-encrypt-env-dev admin-encrypt-env-prod \
+        calcode calcode-build calcode-install calcode-clean calcode-reinstall calcode-typecheck calcode-test test typecheck release
 
 CLI_DIR   := packages/opencode
 ADMIN_DIR := admin
 BIN_DIR   ?= $(HOME)/.local/bin
 ARGS      ?=
 VERSION   ?=
-CHANNEL   ?= latest
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-zA-Z_-]+:.*## /{printf "  \033[36m%-18s\033[0m %s\n",$$1,$$2}' $(MAKEFILE_LIST)
@@ -56,6 +52,46 @@ admin-reset-db: ## DROP the admin tables (users, providers, uploads) after askin
 	@printf "Drop all calcode admin tables in the DATABASE_URL database? [y/N] " && read a && [ "$$a" = y ] \
 	  && (cd $(ADMIN_DIR) && bun src/migrate.ts --reset) || echo "aborted"
 
+# ---- admin: migrate a remote database from this machine --------------------
+
+admin-migrate-dev: ## Apply pending migrations to the dev database
+	cd $(ADMIN_DIR) && bun --env-file=.env.dev src/migrate.ts
+
+admin-migrate-prod: ## Apply pending migrations to the prod database (asks first)
+	@printf "Migrate the PROD database? [y/N] " && read a && [ "$$a" = y ] \
+	  && (cd $(ADMIN_DIR) && bun --env-file=.env.prod src/migrate.ts) || echo "aborted"
+
+# ---- admin: deploy to AWS Lambda (dev and prod) ----------------------------
+
+AWS_PROFILE_NAME ?= caliq-sls-deploy
+AWS_REGION       ?= ap-southeast-5
+DEPLOYMENT_ID    ?= $(shell date +%s)
+ENV_PASSPHRASE 	 ?= k8ydhdgatYehaV52tgS
+
+-include make-local.mk
+
+export USE_AWS_PROFILE := true
+export AWS_PROFILE_NAME
+export AWS_REGION
+export ENV_PASSPHRASE
+export DEPLOYMENT_ID
+
+admin-check-deploy:
+	@test -n "$(ENV_PASSPHRASE)" || { echo "ERROR: ENV_PASSPHRASE is not set. Run: make $(MAKECMDGOALS) ENV_PASSPHRASE=... (or save it in make-local.mk)"; exit 1; }
+	@for t in aws gpg zip unzip curl python3 bun; do command -v $$t >/dev/null || { echo "ERROR: $$t is required"; exit 1; }; done
+
+admin-deploy-dev: admin-check-deploy ## Deploy admin to Lambda (dev)
+	$(ADMIN_DIR)/scripts/deployment-api-lambda.sh dev
+
+admin-deploy-prod: admin-check-deploy ## Deploy admin to Lambda (prod; use AWS_REGION=ap-southeast-1)
+	$(ADMIN_DIR)/scripts/deployment-api-lambda.sh prod
+
+admin-encrypt-env-dev: admin-check-deploy ## Encrypt admin/.env.dev -> admin/.env.dev.gpg
+	gpg --batch --yes --passphrase "$(ENV_PASSPHRASE)" --symmetric --cipher-algo AES256 $(ADMIN_DIR)/.env.dev
+
+admin-encrypt-env-prod: admin-check-deploy ## Encrypt admin/.env.prod -> admin/.env.prod.gpg
+	gpg --batch --yes --passphrase "$(ENV_PASSPHRASE)" --symmetric --cipher-algo AES256 $(ADMIN_DIR)/.env.prod
+
 # ---- calcode CLI ----------------------------------------------------------
 
 calcode: ## Run the CLI from source: make calcode ARGS="run hi"
@@ -71,50 +107,25 @@ calcode-install: calcode-build ## Build and link the binary as `calcode` into ~/
 	  echo "linked $(BIN_DIR)/calcode -> $$bin" && \
 	  case ":$$PATH:" in *":$(BIN_DIR):"*) ;; *) echo "note: add $(BIN_DIR) to your PATH";; esac
 
-# Publishing to npm: `calcode` + calcode-<os>-<arch> packages. Requires `npm login`.
-#   make calcode-publish-dry VERSION=1.0.0    build everything and run `npm publish --dry-run`
-#   make calcode-publish VERSION=1.0.0        publish for real (CHANNEL=latest by default)
-# Versions can't be republished, so bump VERSION each release.
-calcode-build-all: ## Build binaries for all platforms (needs VERSION=x.y.z)
-	@test -n "$(VERSION)" || { echo "VERSION is required, e.g. make $@ VERSION=1.0.0"; exit 1; }
-	cd $(CLI_DIR) && OPENCODE_VERSION=$(VERSION) OPENCODE_CHANNEL=$(CHANNEL) bun run script/build.ts
+calcode-clean: ## Remove local calcode/opencode config, data and cache
+	rm -rf ~/.config/opencode ~/.config/calcode ~/.local/share/opencode ~/.local/share/calcode ~/.cache/opencode
 
-calcode-publish-dry: calcode-build-all ## Dry-run the npm publish (nothing is uploaded)
-	@npm whoami >/dev/null || { echo "not logged in: run npm login"; exit 1; }
-	cd $(CLI_DIR) && DRY_RUN=1 OPENCODE_VERSION=$(VERSION) OPENCODE_CHANNEL=$(CHANNEL) bun run script/publish.ts
+calcode-reinstall: calcode-clean calcode-install ## Wipe local state, then rebuild and relink the binary
 
-calcode-publish: calcode-build-all calcode-publish-only ## Build all platforms and publish to npm (needs VERSION=x.y.z)
+# Build every platform locally, tag + push to git, and upload the binaries to a GitHub Release
 
-calcode-publish-only: ## Publish the existing dist/ without rebuilding (resume after a failure)
-	@test -n "$(VERSION)" || { echo "VERSION is required"; exit 1; }
-	@npm whoami >/dev/null || { echo "not logged in: run npm login"; exit 1; }
-	cd $(CLI_DIR) && OPENCODE_VERSION=$(VERSION) OPENCODE_CHANNEL=$(CHANNEL) bun run script/publish.ts
-
-calcode-deploy: ## One-go publish via local ./deployment.sh (not in git): make calcode-deploy VERSION=x.y.z
-	@test -x deployment.sh || { echo "deployment.sh not found (it is local-only and gitignored)"; exit 1; }
-	./deployment.sh $(VERSION)
-
-# GitHub Releases: builds binaries for all platforms, packages them, and uploads
-# as release assets so `curl -fsSL .../install | bash` works.
-#   make release VERSION=1.0.0              full deploy (create release + build + upload)
-#   make release-create VERSION=1.0.0       create the GitHub Release only
-#   make release-build VERSION=1.0.0        build + upload to an existing release
 GH_REPO ?= $(shell git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$$||')
 
-release-create: ## Create a GitHub Release tag: make release-create VERSION=x.y.z
+release: ## Build all platforms, push tag v$(VERSION), create the GitHub Release and upload binaries
 	@test -n "$(VERSION)" || { echo "VERSION is required, e.g. make $@ VERSION=1.0.0"; exit 1; }
-	gh release view v$(VERSION) --repo $(GH_REPO) >/dev/null 2>&1 && \
-	  echo "release v$(VERSION) already exists on $(GH_REPO)" || \
-	  gh release create v$(VERSION) --repo $(GH_REPO) --title "v$(VERSION)" --generate-notes
-
-release-build: ## Build all platforms and upload assets to GitHub Releases: make release-build VERSION=x.y.z
-	@test -n "$(VERSION)" || { echo "VERSION is required, e.g. make $@ VERSION=1.0.0"; exit 1; }
+	@test -z "$$(git status --porcelain)" || { echo "working tree is dirty: commit or stash first"; exit 1; }
+	git push origin HEAD
+	git rev-parse -q --verify refs/tags/v$(VERSION) >/dev/null || git tag v$(VERSION)
+	git push origin v$(VERSION)
+	gh release view v$(VERSION) --repo $(GH_REPO) >/dev/null 2>&1 || \
+	  gh release create v$(VERSION) --repo $(GH_REPO) --verify-tag --title "v$(VERSION)" --generate-notes
 	cd $(CLI_DIR) && OPENCODE_VERSION=$(VERSION) OPENCODE_CHANNEL=latest OPENCODE_RELEASE=1 GH_REPO=$(GH_REPO) bun run script/build.ts
-
-release: release-create release-build ## Full GitHub Releases deploy: make release VERSION=x.y.z
-	@echo ""
-	@echo "Released v$(VERSION) to $(GH_REPO). Install with:"
-	@echo "  curl -fsSL https://raw.githubusercontent.com/$(GH_REPO)/master/install | bash"
+	@echo "Released v$(VERSION). Install: curl -fsSL https://raw.githubusercontent.com/$(GH_REPO)/master/install | bash"
 
 calcode-typecheck: ## Typecheck calcode
 	cd $(CLI_DIR) && bun typecheck

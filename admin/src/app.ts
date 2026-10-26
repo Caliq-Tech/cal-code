@@ -52,5 +52,5 @@ async function serveStatic(pathname: string) {
   if (!file.startsWith(publicDir + path.sep)) return new Response("Not found", { status: 404 })
   const f = Bun.file(file)
   if (!(await f.exists())) return new Response("Not found", { status: 404 })
-  return new Response(f)
+  return new Response(f, { headers: { "content-type": f.type } })
 }

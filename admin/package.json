@@ -14,6 +14,7 @@
     "@aws-sdk/s3-request-presigner": "3.1000.0"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.164",
     "@types/bun": "latest",
     "typescript": "5.8.2"
   }

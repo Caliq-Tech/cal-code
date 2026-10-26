@@ -1,0 +1,118 @@
+name: Deploy Admin (ZIP)
+
+# ZIP deployment of calcode-admin-<env> (the admin/ Bun server as a Lambda custom runtime).
+# Push to dev -> dev, master -> prod, only when admin/ changes.
+# The functions, S3 bucket, database and API Gateway routes are created once,
+# outside this pipeline; this ships code only.
+
+on:
+  push:
+    branches: [dev, master]
+    paths:
+      - admin/**
+      - .github/workflows/deployment-api-lambda.yml
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy
+        required: true
+        default: dev
+        type: choice
+        options: [dev, prod]
+
+concurrency:
+  group: calcode-admin-${{ github.ref_name }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+defaults:
+  run:
+    working-directory: admin
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Resolve environment
+        id: env
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_ENV: ${{ inputs.environment }}
+          REF: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            SUFFIX="$INPUT_ENV"
+          else
+            case "$REF" in
+              dev) SUFFIX="dev" ;;
+              master) SUFFIX="prod" ;;
+              *) echo "ERROR: unexpected branch '$REF'"; exit 1 ;;
+            esac
+          fi
+          echo "suffix=$SUFFIX" >> "$GITHUB_OUTPUT"
+          echo "Deploying calcode-admin-$SUFFIX"
+
+      - name: Resolve deploy role and region
+        id: role
+        env:
+          SUFFIX: ${{ steps.env.outputs.suffix }}
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          AWS_REGION_PROD: ${{ vars.AWS_REGION }}
+          AWS_REGION_DEV: ${{ vars.AWS_REGION_DEV }}
+        run: |
+          ARN="$AWS_ROLE_ARN"
+          case "$SUFFIX" in
+            prod) REGION="$AWS_REGION_PROD" ;;
+            *)    REGION="$AWS_REGION_DEV" ;;
+          esac
+          if [ -z "$ARN" ]; then
+            echo "ERROR: repo variable AWS_ROLE_ARN is not set."
+            echo "Add it under GitHub repo Settings -> Secrets and variables -> Actions -> Variables."
+            exit 1
+          fi
+          if [ -z "$REGION" ]; then
+            echo "ERROR: repo variable AWS_REGION_DEV (dev) or AWS_REGION (prod) is not set."
+            echo "Add it under GitHub repo Settings -> Secrets and variables -> Actions -> Variables."
+            exit 1
+          fi
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+          echo "region=$REGION" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.role.outputs.arn }}
+          aws-region: ${{ steps.role.outputs.region }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Deploy calcode-admin
+        env:
+          DEPLOYMENT_ID: ${{ github.sha }}
+          USE_AWS_PROFILE: "false"
+          AWS_REGION: ${{ steps.role.outputs.region }}
+          ENV_PASSPHRASE: ${{ secrets.ENV_PASSPHRASE }}
+          SUFFIX: ${{ steps.env.outputs.suffix }}
+        run: |
+          ./scripts/deployment-api-lambda.sh "$SUFFIX" 2>&1 | tee deployment.log
+          exit ${PIPESTATUS[0]}

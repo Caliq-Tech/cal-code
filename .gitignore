@@ -33,3 +33,9 @@ logs/
 *.bun-build
 tsconfig.tsbuildinfo
 deployment.sh
+make-local.mk
+admin/.env.*
+!admin/.env.example
+!admin/.env.*.gpg
+.env.dev
+.env.prod
