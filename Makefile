@@ -108,7 +108,7 @@ calcode-install: calcode-build ## Build and link the binary as `calcode` into ~/
 	  case ":$$PATH:" in *":$(BIN_DIR):"*) ;; *) echo "note: add $(BIN_DIR) to your PATH";; esac
 
 calcode-clean: ## Remove local calcode/opencode config, data and cache
-	rm -rf ~/.config/opencode ~/.config/calcode ~/.local/share/opencode ~/.local/share/calcode ~/.cache/opencode
+	rm -rf ~/.calcode ~/.config/opencode ~/.config/calcode ~/.local/share/opencode ~/.local/share/calcode ~/.cache/opencode ~/.cache/calcode
 
 calcode-reinstall: calcode-clean calcode-install ## Wipe local state, then rebuild and relink the binary
 
