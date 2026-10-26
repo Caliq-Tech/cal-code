@@ -6,6 +6,7 @@
     "dev": "bun --watch src/server.ts",
     "start": "bun src/server.ts",
     "migrate": "bun src/migrate.ts",
+    "build": "bun build src/lambda.ts --target=bun --minify --outfile=dist/lambda.js",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

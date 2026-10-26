@@ -52,5 +52,7 @@ async function serveStatic(pathname: string) {
   if (!file.startsWith(publicDir + path.sep)) return new Response("Not found", { status: 404 })
   const f = Bun.file(file)
   if (!(await f.exists())) return new Response("Not found", { status: 404 })
-  return new Response(f, { headers: { "content-type": f.type } })
+  // The shell must revalidate so deploys show up; assets are small and safe to reuse briefly.
+  const cache = pathname === "/" || pathname.endsWith(".html") ? "no-cache" : "public, max-age=300"
+  return new Response(f, { headers: { "content-type": f.type, "cache-control": cache } })
 }

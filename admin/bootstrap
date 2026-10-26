@@ -2,4 +2,4 @@
 # Lambda custom-runtime entrypoint (runtime: provided.al2023). Bun loads ./.env from the cwd.
 export HOME=/tmp
 cd "$LAMBDA_TASK_ROOT"
-exec ./bun src/lambda.ts
+exec ./bun dist/lambda.js

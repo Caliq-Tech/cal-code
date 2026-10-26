@@ -7,8 +7,9 @@
 # CI:      USE_AWS_PROFILE=false ENV_PASSPHRASE=... DEPLOYMENT_ID=<sha> ./scripts/deployment-api-lambda.sh dev
 #
 # The admin server is Bun code, which Lambda has no managed runtime for. It ships as a
-# custom runtime (provided.al2023): the zip holds the bun binary, src/, public/, migrations/,
-# production node_modules, the decrypted env as .env, and `bootstrap` (starts src/lambda.ts).
+# custom runtime (provided.al2023): the zip holds the bun binary, one minified JS bundle
+# (dist/lambda.js, built from src/lambda.ts), public/, migrations/, the decrypted env as .env,
+# and `bootstrap` (starts dist/lambda.js). No node_modules and no TypeScript transpile at cold start.
 #
 # Deploys ONE function: calcode-admin-<env> (created once outside this script, with an
 # API Gateway HTTP API / Function URL in front and network access to Postgres).
@@ -23,7 +24,7 @@ export AWS_PAGER=""
 FUNCTION_BASE="${FUNCTION_BASE:-calcode-admin}"
 HANDLER="bootstrap"
 TIMEOUT=30
-MEMORY=512
+MEMORY=1024
 
 RUNTIME="provided.al2023"
 ALIAS="live"
@@ -159,13 +160,12 @@ unzip -qj "$BUN_ZIP" "bun-linux-${BUN_ARCH}/bun" -d "$PKG"
 chmod +x "$PKG/bun"
 
 echo ""
-echo "Installing production dependencies..."
+echo "Bundling src/lambda.ts -> dist/lambda.js..."
 
-cp package.json bun.lock "$PKG/"
-(cd "$PKG" && bun install --production --frozen-lockfile)
-find "$PKG/node_modules" -type f -name '*.map' -delete
+# Dependencies are inlined; the Lambda package needs no node_modules.
+bun build src/lambda.ts --target=bun --minify --outfile "$PKG/dist/lambda.js"
 
-cp -R src public migrations "$PKG/"
+cp -R public migrations "$PKG/"
 cp bootstrap "$PKG/bootstrap"
 chmod +x "$PKG/bootstrap"
 

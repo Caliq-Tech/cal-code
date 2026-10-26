@@ -7,6 +7,13 @@ const dir = path.join(import.meta.dir, "..", "migrations")
 // Applies migrations/NNN_name.sql in order, each in a transaction, once. Returns the names applied.
 // An advisory lock makes concurrent starts (several replicas booting) safe.
 export async function migrate() {
+  // Fast path for warm databases (every Lambda cold start): one read, no transaction or lock.
+  const files = readdirSync(dir).filter((f) => f.endsWith(".sql"))
+  const existing = await sql`SELECT to_regclass('schema_migrations') AS t`
+  if (existing[0]?.t) {
+    const done = new Set((await sql`SELECT name FROM schema_migrations`).map((r: { name: string }) => r.name))
+    if (files.every((f) => done.has(f))) return []
+  }
   return sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(727274)`
     await tx`CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at BIGINT NOT NULL)`
