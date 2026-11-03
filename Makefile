@@ -1,4 +1,5 @@
 # Calcode: CLI (packages/opencode) + admin server (admin/)
+# curl -fsSL https://raw.githubusercontent.com/Caliq-Tech/cal-code/master/install | bash
 
 .DEFAULT_GOAL := help
 .PHONY: help setup install install-calcode install-admin admin-env \
